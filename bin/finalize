@@ -95,10 +95,34 @@ fi
 
 # Ensure bun is available at runtime by copying to app's bin directory
 mkdir -p "$BUILD_DIR/.profile.d"
-cat > "$BUILD_DIR/.profile.d/000_bun.sh" << EOF
-export PATH="\$HOME/bin:\$PATH"
-export BUN_INSTALL="\$HOME"
+
+# Set up PATH for bun
+cat > "$BUILD_DIR/.profile.d/000_bun.sh" << 'EOF'
+export PATH="$HOME/bin:$PATH"
+export BUN_INSTALL="$HOME"
 EOF
+
+# Extract secrets from VCAP_SERVICES user-provided services
+cat > "$BUILD_DIR/.profile.d/001_vcap_secrets.sh" << 'VCAP_SCRIPT'
+#!/usr/bin/env bash
+# Extract credentials from user-provided services named 'secrets' or 'config'
+if [ -n "$VCAP_SERVICES" ]; then
+  # Use bun to parse JSON and export env vars
+  eval "$($HOME/bin/bun -e "
+    const vcap = JSON.parse(process.env.VCAP_SERVICES || '{}');
+    const ups = vcap['user-provided'] || [];
+    const secrets = ups.find(s => s.name.includes('secrets') || s.name.includes('config'));
+    if (secrets?.credentials) {
+      for (const [key, value] of Object.entries(secrets.credentials)) {
+        if (typeof value === 'string') {
+          console.log('export ' + key + '=' + JSON.stringify(value));
+        }
+      }
+    }
+  ")"
+fi
+VCAP_SCRIPT
+chmod +x "$BUILD_DIR/.profile.d/001_vcap_secrets.sh"
 
 mkdir -p "$BUILD_DIR/bin"
 cp "$BUN_BIN" "$BUILD_DIR/bin/bun"
