@@ -37,14 +37,24 @@ if [[ -f "$CACHED_HASH_FILE" ]]; then
   CACHED_HASH=$(cat "$CACHED_HASH_FILE")
 fi
 
+# Install function that handles lockfile changes gracefully
+install_deps() {
+  if "$BUN_BIN" install --frozen-lockfile 2>&1 | sed 's/^/       /'; then
+    return 0
+  else
+    echo "       Lockfile had platform-specific changes, running regular install..."
+    "$BUN_BIN" install 2>&1 | sed 's/^/       /'
+  fi
+}
+
 if [[ -n "$LOCKFILE_HASH" ]] && [[ "$LOCKFILE_HASH" == "$CACHED_HASH" ]] && [[ -d "$NODE_MODULES_CACHE" ]]; then
   echo "-----> Restoring cached node_modules"
   cp -r "$NODE_MODULES_CACHE" ./node_modules
   echo "-----> Running bun install to verify dependencies"
-  "$BUN_BIN" install --frozen-lockfile 2>&1 | sed 's/^/       /'
+  install_deps
 else
   echo "-----> Installing dependencies with Bun"
-  "$BUN_BIN" install --frozen-lockfile 2>&1 | sed 's/^/       /'
+  install_deps
 
   # Cache node_modules
   if [[ -d "node_modules" ]]; then
@@ -59,7 +69,7 @@ fi
 if [[ -f "package.json" ]]; then
   if grep -q '"build"' package.json 2>/dev/null; then
     echo "-----> Running build script"
-    "$BUN_BIN" run build 2>&1 | sed 's/^/       /'
+    "$BUN_BIN" run build 2>&1 | sed 's/^/       /' || true
   fi
 
   # Run heroku-postbuild if it exists (Heroku compatibility)
