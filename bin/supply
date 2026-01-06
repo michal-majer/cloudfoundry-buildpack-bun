@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+# Cloud Foundry Bun Buildpack - supply script
+# Downloads and installs the Bun runtime
+
+set -euo pipefail
+
+BUILD_DIR="${1:-}"
+CACHE_DIR="${2:-}"
+DEPS_DIR="${3:-}"
+DEPS_IDX="${4:-}"
+
+if [[ -z "$BUILD_DIR" ]] || [[ -z "$CACHE_DIR" ]] || [[ -z "$DEPS_DIR" ]] || [[ -z "$DEPS_IDX" ]]; then
+  echo "Usage: supply BUILD_DIR CACHE_DIR DEPS_DIR DEPS_IDX" >&2
+  exit 1
+fi
+
+BUN_INSTALL_DIR="$DEPS_DIR/$DEPS_IDX"
+BUN_CACHE_DIR="$CACHE_DIR/bun"
+
+# Determine Bun version
+if [[ -f "$BUILD_DIR/.bun-version" ]]; then
+  BUN_VERSION=$(cat "$BUILD_DIR/.bun-version" | tr -d '[:space:]')
+else
+  BUN_VERSION="latest"
+fi
+
+echo "-----> Installing Bun ${BUN_VERSION}"
+
+# Determine download URL
+if [[ "$BUN_VERSION" == "latest" ]]; then
+  BUN_URL="https://github.com/oven-sh/bun/releases/latest/download/bun-linux-x64.zip"
+  CACHE_KEY="latest"
+else
+  # Support both "v1.0.0" and "1.0.0" formats
+  VERSION_TAG="$BUN_VERSION"
+  if [[ ! "$VERSION_TAG" =~ ^v ]]; then
+    VERSION_TAG="v$VERSION_TAG"
+  fi
+  BUN_URL="https://github.com/oven-sh/bun/releases/download/bun-${VERSION_TAG}/bun-linux-x64.zip"
+  CACHE_KEY="$VERSION_TAG"
+fi
+
+# Create directories
+mkdir -p "$BUN_INSTALL_DIR/bin"
+mkdir -p "$BUN_CACHE_DIR"
+
+# Check cache for non-latest versions
+CACHED_BUN="$BUN_CACHE_DIR/bun-$CACHE_KEY"
+if [[ "$BUN_VERSION" != "latest" ]] && [[ -f "$CACHED_BUN" ]]; then
+  echo "       Using cached Bun $CACHE_KEY"
+  cp "$CACHED_BUN" "$BUN_INSTALL_DIR/bin/bun"
+else
+  echo "       Downloading from $BUN_URL"
+
+  # Download and extract
+  TEMP_DIR=$(mktemp -d)
+  trap "rm -rf $TEMP_DIR" EXIT
+
+  if ! curl -fsSL "$BUN_URL" -o "$TEMP_DIR/bun.zip"; then
+    echo "ERROR: Failed to download Bun from $BUN_URL" >&2
+    exit 1
+  fi
+
+  if ! unzip -q "$TEMP_DIR/bun.zip" -d "$TEMP_DIR"; then
+    echo "ERROR: Failed to extract Bun archive" >&2
+    exit 1
+  fi
+
+  # Find the bun binary (handle different archive structures)
+  BUN_BINARY=$(find "$TEMP_DIR" -name "bun" -type f | head -1)
+  if [[ -z "$BUN_BINARY" ]]; then
+    echo "ERROR: Could not find bun binary in archive" >&2
+    exit 1
+  fi
+
+  mv "$BUN_BINARY" "$BUN_INSTALL_DIR/bin/bun"
+
+  # Cache for non-latest versions
+  if [[ "$BUN_VERSION" != "latest" ]]; then
+    cp "$BUN_INSTALL_DIR/bin/bun" "$CACHED_BUN"
+  fi
+fi
+
+chmod +x "$BUN_INSTALL_DIR/bin/bun"
+
+# Create profile.d script for runtime PATH setup
+mkdir -p "$BUN_INSTALL_DIR/profile.d"
+cat > "$BUN_INSTALL_DIR/profile.d/000_bun.sh" << EOF
+export PATH="\$DEPS_DIR/$DEPS_IDX/bin:\$PATH"
+export BUN_INSTALL="\$DEPS_DIR/$DEPS_IDX"
+EOF
+
+# Verify installation
+BUN_INSTALLED_VERSION=$("$BUN_INSTALL_DIR/bin/bun" --version 2>/dev/null || echo "unknown")
+echo "-----> Bun $BUN_INSTALLED_VERSION installed successfully"
+
+# Write config for other buildpacks
+mkdir -p "$BUN_INSTALL_DIR/config"
+cat > "$BUN_INSTALL_DIR/config/bun.yml" << EOF
+name: bun
+version: $BUN_INSTALLED_VERSION
+EOF

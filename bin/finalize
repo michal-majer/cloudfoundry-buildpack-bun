@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+# Cloud Foundry Bun Buildpack - finalize script
+# Installs dependencies and runs build
+
+set -euo pipefail
+
+BUILD_DIR="${1:-}"
+CACHE_DIR="${2:-}"
+DEPS_DIR="${3:-}"
+DEPS_IDX="${4:-}"
+PROFILE_DIR="${5:-}"
+
+if [[ -z "$BUILD_DIR" ]] || [[ -z "$CACHE_DIR" ]] || [[ -z "$DEPS_DIR" ]] || [[ -z "$DEPS_IDX" ]]; then
+  echo "Usage: finalize BUILD_DIR CACHE_DIR DEPS_DIR DEPS_IDX [PROFILE_DIR]" >&2
+  exit 1
+fi
+
+BUN_BIN="$DEPS_DIR/$DEPS_IDX/bin/bun"
+NODE_MODULES_CACHE="$CACHE_DIR/node_modules"
+
+if [[ ! -x "$BUN_BIN" ]]; then
+  echo "ERROR: Bun binary not found at $BUN_BIN" >&2
+  exit 1
+fi
+
+cd "$BUILD_DIR"
+
+# Restore cached node_modules if exists and lockfile hasn't changed
+LOCKFILE_HASH=""
+if [[ -f "bun.lockb" ]]; then
+  LOCKFILE_HASH=$(md5sum bun.lockb | cut -d' ' -f1)
+fi
+
+CACHED_HASH_FILE="$CACHE_DIR/.lockfile_hash"
+CACHED_HASH=""
+if [[ -f "$CACHED_HASH_FILE" ]]; then
+  CACHED_HASH=$(cat "$CACHED_HASH_FILE")
+fi
+
+if [[ -n "$LOCKFILE_HASH" ]] && [[ "$LOCKFILE_HASH" == "$CACHED_HASH" ]] && [[ -d "$NODE_MODULES_CACHE" ]]; then
+  echo "-----> Restoring cached node_modules"
+  cp -r "$NODE_MODULES_CACHE" ./node_modules
+  echo "-----> Running bun install to verify dependencies"
+  "$BUN_BIN" install --frozen-lockfile 2>&1 | sed 's/^/       /'
+else
+  echo "-----> Installing dependencies with Bun"
+  "$BUN_BIN" install --frozen-lockfile 2>&1 | sed 's/^/       /'
+
+  # Cache node_modules
+  if [[ -d "node_modules" ]]; then
+    echo "-----> Caching node_modules for future builds"
+    rm -rf "$NODE_MODULES_CACHE"
+    cp -r node_modules "$NODE_MODULES_CACHE"
+    echo "$LOCKFILE_HASH" > "$CACHED_HASH_FILE"
+  fi
+fi
+
+# Run build script if it exists in package.json
+if [[ -f "package.json" ]]; then
+  if grep -q '"build"' package.json 2>/dev/null; then
+    echo "-----> Running build script"
+    "$BUN_BIN" run build 2>&1 | sed 's/^/       /'
+  fi
+
+  # Run heroku-postbuild if it exists (Heroku compatibility)
+  if grep -q '"heroku-postbuild"' package.json 2>/dev/null; then
+    echo "-----> Running heroku-postbuild script"
+    "$BUN_BIN" run heroku-postbuild 2>&1 | sed 's/^/       /'
+  fi
+fi
+
+# Prune devDependencies for production
+if [[ "${NODE_ENV:-}" == "production" ]] || [[ "${BUN_PRUNE:-true}" == "true" ]]; then
+  echo "-----> Pruning devDependencies"
+  "$BUN_BIN" install --production 2>&1 | sed 's/^/       /' || true
+fi
+
+echo "-----> Build complete"

@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Cloud Foundry Bun Buildpack - release script
+# Provides default configuration for running the application
+
+BUILD_DIR="${1:-}"
+
+cat << 'YAML'
+---
+config_vars:
+  NODE_ENV: production
+default_process_types:
+  web: bun run start
+YAML

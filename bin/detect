@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# Cloud Foundry Bun Buildpack - detect script
+# Returns 0 if this is a Bun project, 1 otherwise
+
+set -euo pipefail
+
+BUILD_DIR="${1:-}"
+
+if [[ -z "$BUILD_DIR" ]]; then
+  echo "Usage: detect BUILD_DIR" >&2
+  exit 1
+fi
+
+# Check for bun.lockb (primary indicator of a Bun project)
+if [[ -f "$BUILD_DIR/bun.lockb" ]]; then
+  echo "bun"
+  exit 0
+fi
+
+# Check for .bun-version file (explicit Bun version pinning)
+if [[ -f "$BUILD_DIR/.bun-version" ]]; then
+  echo "bun"
+  exit 0
+fi
+
+# Check for package.json with bun in engines
+if [[ -f "$BUILD_DIR/package.json" ]]; then
+  if grep -q '"bun"' "$BUILD_DIR/package.json" 2>/dev/null; then
+    echo "bun"
+    exit 0
+  fi
+fi
+
+# Not a Bun project
+exit 1

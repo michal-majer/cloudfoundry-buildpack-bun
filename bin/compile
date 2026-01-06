@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+# Cloud Foundry Bun Buildpack - compile script
+# Legacy script for compatibility with older CF versions and Heroku
+# Modern CF uses supply + finalize instead
+
+set -euo pipefail
+
+BUILD_DIR="${1:-}"
+CACHE_DIR="${2:-}"
+ENV_DIR="${3:-}"
+
+if [[ -z "$BUILD_DIR" ]] || [[ -z "$CACHE_DIR" ]]; then
+  echo "Usage: compile BUILD_DIR CACHE_DIR [ENV_DIR]" >&2
+  exit 1
+fi
+
+# Create a temporary deps directory for single-buildpack mode
+DEPS_DIR=$(mktemp -d)
+DEPS_IDX="0"
+
+# Source the supply script
+BUILDPACK_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+source "$BUILDPACK_DIR/bin/supply" "$BUILD_DIR" "$CACHE_DIR" "$DEPS_DIR" "$DEPS_IDX"
+
+# Now run finalize
+source "$BUILDPACK_DIR/bin/finalize" "$BUILD_DIR" "$CACHE_DIR" "$DEPS_DIR" "$DEPS_IDX" ""
+
+# Copy the deps to the build directory for runtime
+mkdir -p "$BUILD_DIR/.deps"
+cp -r "$DEPS_DIR/$DEPS_IDX"/* "$BUILD_DIR/.deps/"
+
+# Update profile.d for runtime
+mkdir -p "$BUILD_DIR/.profile.d"
+cat > "$BUILD_DIR/.profile.d/000_bun.sh" << 'EOF'
+export PATH="$HOME/.deps/bin:$PATH"
+export BUN_INSTALL="$HOME/.deps"
+EOF
+
+echo "-----> Compile complete"

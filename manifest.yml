@@ -1,0 +1,20 @@
+---
+language: bun
+default_versions:
+  - name: bun
+    version: latest
+
+dependency_deprecation_dates: []
+
+include_files:
+  - bin/detect
+  - bin/supply
+  - bin/finalize
+  - bin/release
+  - bin/compile
+  - manifest.yml
+  - VERSION
+  - README.md
+  - LICENSE
+
+pre_package: []
