@@ -39,9 +39,12 @@ fi
 
 # Install function that handles lockfile changes gracefully
 install_deps() {
-  if "$BUN_BIN" install --frozen-lockfile 2>&1 | sed 's/^/       /'; then
-    return 0
-  else
+  set +e
+  "$BUN_BIN" install --frozen-lockfile 2>&1 | sed 's/^/       /'
+  local exit_code=${PIPESTATUS[0]}
+  set -e
+
+  if [[ $exit_code -ne 0 ]]; then
     echo "       Lockfile had platform-specific changes, running regular install..."
     "$BUN_BIN" install 2>&1 | sed 's/^/       /'
   fi
