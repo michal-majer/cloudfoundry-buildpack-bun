@@ -65,11 +65,16 @@ else
   fi
 fi
 
-# Run build script if it exists in package.json
-if [[ -f "package.json" ]]; then
+# Run build script if it exists in package.json (skip if BUN_SKIP_BUILD=true)
+if [[ "${BUN_SKIP_BUILD:-}" != "true" ]] && [[ -f "package.json" ]]; then
   if grep -q '"build"' package.json 2>/dev/null; then
-    echo "-----> Running build script"
-    "$BUN_BIN" run build 2>&1 | sed 's/^/       /' || true
+    # Skip build for monorepo root (avoid recursive build scripts)
+    if grep -q '"workspaces"' package.json 2>/dev/null; then
+      echo "-----> Skipping build script (monorepo root detected)"
+    else
+      echo "-----> Running build script"
+      "$BUN_BIN" run build 2>&1 | sed 's/^/       /' || true
+    fi
   fi
 
   # Run heroku-postbuild if it exists (Heroku compatibility)
