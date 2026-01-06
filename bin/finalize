@@ -93,4 +93,15 @@ if [[ "${NODE_ENV:-}" == "production" ]] || [[ "${BUN_PRUNE:-true}" == "true" ]]
   "$BUN_BIN" install --production 2>&1 | sed 's/^/       /' || true
 fi
 
+# Ensure bun is available at runtime by copying to app's bin directory
+mkdir -p "$BUILD_DIR/.profile.d"
+cat > "$BUILD_DIR/.profile.d/000_bun.sh" << EOF
+export PATH="\$HOME/bin:\$PATH"
+export BUN_INSTALL="\$HOME"
+EOF
+
+mkdir -p "$BUILD_DIR/bin"
+cp "$BUN_BIN" "$BUILD_DIR/bin/bun"
+chmod +x "$BUILD_DIR/bin/bun"
+
 echo "-----> Build complete"
